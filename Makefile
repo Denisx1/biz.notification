@@ -57,5 +57,8 @@ run:
 deploy:
 	@docker compose up -d --build notification
 	@docker image prune -f
+deploy-down:
+	@docker compose down
+	@docker image prune -f
 
 # docker run --rm -it --network host natsio/nats-box nats sub ">"
