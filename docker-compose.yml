@@ -1,0 +1,33 @@
+services:
+  notification-postgres:
+    image: postgres:18-alpine
+    container_name: ${POSTGRES_CONTAINER}
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    command: [ 'postgres', '-c', 'wal_level=logical', '-c', 'max_replication_slots=10', '-c', 'max_wal_senders=10' ]
+    volumes:
+      - ${POSTGRES_FOLDER}:/var/lib/postgresql
+  port-forwarder:
+    image: alpine/socat:1.8.0.3
+    container_name: ${PORT_FORWARDER}
+    command: tcp-listen:5432,fork,reuseaddr tcp-connect:${POSTGRES_CONTAINER}:${POSTGRES_PORT}
+    ports:
+      - "127.0.0.1:5432:5432"
+  migrate:
+    image: migrate/migrate:v4.19.1
+    container_name: ${MIGRATION_CONTAINER}
+    volumes:
+      - ${MIGRATION_FOLDER}:/migrations   
+  nats:
+    image: nats:latest
+    container_name: ${NATS_CONTAINER}
+    restart: always
+    ports:
+      - "4222:4222"   # Основной порт для клиентов (ваш код подключается сюда)
+      - "8222:8222"   # HTTP-порт мониторинга (удобно смотреть состояние в браузере)
+    command: ["--jetstream"] # Включаем JetStream на случай, если в будущем захотите персистентность
+    volumes:
+      - ${NATS_FOLDER}:/data
+   

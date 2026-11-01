@@ -1,0 +1,1 @@
+ALTER TABLE sms_tasks ADD COLUMN code_hash TEXT;

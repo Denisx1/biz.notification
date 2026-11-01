@@ -1,0 +1,232 @@
+package core_pgx_pool
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	core_postgres_pool "notification/internal/core/repository/postgres/pool"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type Pool struct {
+	*pgxpool.Pool
+	opTimeout time.Duration
+}
+
+func NewPool(
+	ctx context.Context,
+	config Config,
+) (*Pool, error) {
+	connectionString := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		config.User,
+		config.Password,
+		config.Host,
+		config.Port,
+		config.Database,
+	)
+	pgxconfig, err := pgxpool.ParseConfig(connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("parse pgxconfig: %w", err)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, pgxconfig)
+	if err != nil {
+		return nil, fmt.Errorf("create pgxpool: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("pgxpool ping: %w", err)
+	}
+	return &Pool{
+		Pool:      pool,
+		opTimeout: config.Timeout,
+	}, nil
+}
+
+// func (p *Pool) Exec(
+// 	ctx context.Context,
+// 	sql string,
+// 	arguments ...any,
+// ) (core_postgres_pool.CommandTag, error) {
+// 	tag, err := p.Pool.Exec(ctx, sql, arguments...)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return pgxCommandTag{tag}, nil
+// }
+// func (p *Pool) Query(
+// 	ctx context.Context,
+// 	sql string,
+// 	args ...any) (core_postgres_pool.Rows, error) {
+// 	rows, err := p.Pool.Query(ctx, sql, args...)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return pgxRows{rows}, nil
+// }
+// func (p *Pool) QueryRow(
+// 	ctx context.Context,
+// 	sql string,
+// 	args ...any) core_postgres_pool.Row {
+// 	row := p.Pool.QueryRow(ctx, sql, args...)
+// 	return pgxRow{row}
+// }
+
+func (p *Pool) OpTimeout() time.Duration { return p.opTimeout }
+
+func (p *Pool) Close() { p.Pool.Close() }
+
+func txFromContext(ctx context.Context) (core_postgres_pool.Tx, bool) {
+	tx, ok := ctx.Value(core_postgres_pool.TxKey{}).(core_postgres_pool.Tx)
+	return tx, ok
+}
+
+func (p *Pool) Exec(
+	ctx context.Context,
+	sql string,
+	args ...any,
+) (core_postgres_pool.CommandTag, error) {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.Exec(ctx, sql, args...)
+	}
+	opCtx, cancel := p.withDeadline(ctx, p.opTimeout)
+	defer cancel()
+	tag, err := p.Pool.Exec(opCtx, sql, args...)
+	if err != nil {
+		return nil, mapErrors(err)
+	}
+	return pgxCommandTag{tag: tag}, nil
+}
+func (p *Pool) Query(
+	ctx context.Context,
+	sql string,
+	args ...any) (core_postgres_pool.Rows, error) {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.Query(ctx, sql, args...)
+	}
+	opCtx, cancel := p.withDeadline(ctx, p.opTimeout)
+
+	rows, err := p.Pool.Query(opCtx, sql, args...)
+	if err != nil {
+		cancel()
+		return nil, mapErrors(err)
+	}
+	return pgxRows{Rows: rows, cancel: cancel}, nil
+}
+func (p *Pool) QueryRow(
+	ctx context.Context,
+	sql string,
+	args ...any) core_postgres_pool.Row {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.QueryRow(ctx, sql, args...)
+	}
+	opCtx, cancel := p.withDeadline(ctx, p.opTimeout)
+	return pgxRow{row: p.Pool.QueryRow(opCtx, sql, args...), cancel: cancel}
+}
+
+func (p *Pool) withTx(
+	ctx context.Context,
+	opts pgx.TxOptions,
+	fn func(ctx context.Context) error,
+) (err error) {
+	// Вложенный вызов: уже в транзакции, работаем в ней
+	if _, ok := txFromContext(ctx); ok {
+		return fn(ctx)
+	}
+
+	// Таймаут на всю транзакцию
+	txCtx, cancel := p.withDeadline(ctx, p.opTimeout)
+	defer cancel()
+
+	pgxTx, err := p.Pool.BeginTx(txCtx, opts)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	tx := &pgxTxAdapter{tx: pgxTx}
+	ctxWithTx := context.WithValue(txCtx, core_postgres_pool.TxKey{}, core_postgres_pool.Tx(tx))
+
+	defer func() {
+		if r := recover(); r != nil {
+			rollback(ctx, pgxTx)
+			panic(r)
+		}
+		if err != nil {
+			rollback(ctx, pgxTx)
+			return
+		}
+		if cErr := pgxTx.Commit(txCtx); cErr != nil {
+			err = fmt.Errorf("commit tx: %w", cErr)
+		}
+	}()
+
+	return fn(ctxWithTx)
+}
+func (p *Pool) withDeadline(
+	ctx context.Context,
+	d time.Duration,
+) (context.Context, context.CancelFunc) {
+	if d <= 0 {
+		return ctx, func() {}
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < d {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
+}
+func (p *Pool) withTxRetry(
+	ctx context.Context,
+	opts pgx.TxOptions,
+	fn func(ctx context.Context) error,
+) error {
+	// Вложенный вызов: ретраить внутри чужой транзакции нельзя,
+	// иначе повторится только кусок, а не вся транзакция.
+	const maxRetries = 3
+	if _, ok := txFromContext(ctx); ok {
+		return fn(ctx)
+	}
+
+	var err error
+	for i := 0; i <= maxRetries; i++ {
+		if err = p.withTx(ctx, opts, fn); err == nil || !isSerializationFailure(err) {
+			return err
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		// небольшая пауза с ростом, чтобы конкурирующие транзакции разошлись
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(time.Duration(i+1) * 10 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("tx failed after %d retries: %w", maxRetries, err)
+}
+
+func (p *Pool) WithTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return p.withTx(ctx, pgx.TxOptions{}, fn)
+}
+
+func (p *Pool) WithTxRepeatableRead(ctx context.Context, fn func(ctx context.Context) error) error {
+	return p.withTxRetry(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, fn)
+}
+
+func (p *Pool) WithTxSerializable(ctx context.Context, fn func(ctx context.Context) error) error {
+	return p.withTxRetry(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable}, fn)
+}
+
+// Rollback на «свежем» контексте: если txCtx уже истёк по таймауту,
+// откат с ним не выполнится и соединение зависнет в незакрытой транзакции.
+func rollback(ctx context.Context, tx pgx.Tx) {
+	rbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	_ = tx.Rollback(rbCtx)
+}
+
+func isSerializationFailure(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "40001"
+}
