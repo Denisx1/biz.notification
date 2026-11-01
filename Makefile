@@ -1,4 +1,5 @@
 include .env
+export PROJECT_ROOT=$(shell pwd)
 
 ENV_FILE := .env
 DC := docker compose --env-file $(ENV_FILE)
@@ -12,8 +13,8 @@ env-down:
 	@$(DC) stop $(NATS_CONTAINER)
 env-cleanup:
 	@$(DC) down -v
-	@rm -rf $(POSTGRES_FOLDER)
-	@rm -rf $(NATS_FOLDER)
+	@rm -rf ${PROJECT_ROOT}$(POSTGRES_FOLDER) && \
+	@rm -rf ${PROJECT_ROOT}$(NATS_FOLDER)
 	@echo "All data cleaned up for $(SERVICE_NAME)."
 
 env-port-forward:
@@ -51,7 +52,10 @@ migrate-action:
 		-database "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_CONTAINER):$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable" \
 		$(action)
 run:
-	@go run ./cmd/$(SERVICE_NAME)		
+	@go run ${PROJECT_ROOT}/cmd/${SERVICE_NAME}/main.go 
 
+deploy:
+	@docker compose up -d --build notification
+	@docker image prune -f
 
 # docker run --rm -it --network host natsio/nats-box nats sub ">"

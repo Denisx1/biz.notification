@@ -1,4 +1,16 @@
 services:
+  notification:
+    build:
+      context: ${PROJECT_ROOT}
+      dockerfile: ${PROJECT_ROOT}/cmd/notification/Dockerfile
+    container_name: notification
+    env_file:
+      - ${PROJECT_ROOT}/.env
+    volumes:
+      - ${PROJECT_ROOT}/out/logs:/app/out/logs
+    ports:
+      - "127.0.0.1:5050:5050"
+    restart: always
   notification-postgres:
     image: postgres:18-alpine
     container_name: ${POSTGRES_CONTAINER}
