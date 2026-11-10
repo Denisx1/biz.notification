@@ -60,7 +60,7 @@ func (r *ReceiverRepository) TakeAttempt(
 
 func (r *ReceiverRepository) MarkVerified(ctx context.Context, id int64) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE sms_tasks SET verified_at = now(), status = 'verified' WHERE id = $1`, id)
+		`UPDATE sms_tasks SET verified_at = now(), status = 'verified', expires_at = NULL WHERE id = $1`, id)
 	return err
 }
 func (r *ReceiverRepository) MarkError(ctx context.Context, id int64, er error) error {

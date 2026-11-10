@@ -60,6 +60,8 @@ deploy:
 deploy-down:
 	@docker compose down
 	@docker image prune -f
+	@$(MAKE) env-down
+	@$(MAKE) env-port-close
 logs:
 	@docker compose logs -f notification	
 
