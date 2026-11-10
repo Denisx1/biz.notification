@@ -46,7 +46,6 @@ func (s *ReceiverService) Add(
 
 	taskDomain := domain.NewSMSUninitialized(
 		req.Phone,
-		req.IP,
 		req.Expiration,
 		s.hashCode(code),
 	)

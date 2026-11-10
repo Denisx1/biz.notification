@@ -1,0 +1,1 @@
+ALTER TABLE sms_tasks DROP COLUMN ip;

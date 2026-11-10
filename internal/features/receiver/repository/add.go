@@ -60,9 +60,22 @@ func (r *ReceiverRepository) TakeAttempt(
 
 func (r *ReceiverRepository) MarkVerified(ctx context.Context, id int64) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE sms_tasks SET verified_at = now() WHERE id = $1`, id)
+		`UPDATE sms_tasks SET verified_at = now(), status = 'verified' WHERE id = $1`, id)
 	return err
 }
+func (r *ReceiverRepository) MarkError(ctx context.Context, id int64, er error) error {
+	query := `
+		UPDATE sms_tasks SET error = $1, status = 'error' WHERE id = $2
+	`
+	_, err := r.pool.Exec(
+		ctx,
+		query,
+		er.Error(),
+		id,
+	)
+	return err
+}
+
 func (r *ReceiverRepository) LockPhone(
 	ctx context.Context,
 	phone string,

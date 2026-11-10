@@ -16,6 +16,7 @@ type ReceiverRepository interface {
 	MarkExpired(ctx context.Context, id int64) error
 	TakeAttempt(ctx context.Context, phone string) (Attempt, error)
 	MarkVerified(ctx context.Context, id int64) error
+	MarkError(ctx context.Context, id int64, er error) error
 }
 
 type TaskPublisher interface {

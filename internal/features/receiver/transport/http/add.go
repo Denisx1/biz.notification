@@ -14,7 +14,6 @@ import (
 
 type AddTaskRequest struct {
 	Expiration int64  `json:"expiration"`
-	IP         string `json:"ip"`
 	Phone      string `json:"phone" validate:"required,numeric,min=7,max=15"`
 }
 
@@ -48,7 +47,7 @@ func (h *ReceiverHTTPHandler) Add(rw http.ResponseWriter, r *http.Request) {
 
 	if err := h.receiverService.Add(ctx, req); err != nil {
 		log.Error("failed to enqueue sms task",
-			zap.String("ip", req.IP),
+			zap.String("phone", req.Phone),
 			zap.Error(err),
 		)
 

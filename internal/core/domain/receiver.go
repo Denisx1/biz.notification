@@ -14,7 +14,6 @@ const (
 type SMSTask struct {
 	ID        int64     `json:"id"`
 	Phone     string    `json:"phone"`
-	IP        string    `json:"ip"`
 	IsUsed    bool      `json:"is_used"`
 	ExpiresAt time.Time `json:"expiresAt"` // от клиента: когда задача протухает
 	CodeHash  string    `json:"-"`         // в NATS не уходит
@@ -29,21 +28,18 @@ type SMSMessage struct {
 func NewSmsTask(
 	id int64,
 	phone string,
-	ip string,
 	expiresAt time.Time,
 	codeHash string,
 ) *SMSTask {
 	return &SMSTask{
 		ID:        id,
 		Phone:     phone,
-		IP:        ip,
 		ExpiresAt: expiresAt,
 		CodeHash:  codeHash,
 	}
 }
 func NewSMSUninitialized(
 	phone string,
-	ip string,
 	expiresAt int64,
 	codeHash string,
 
@@ -52,7 +48,6 @@ func NewSMSUninitialized(
 	return NewSmsTask(
 		int64(UninitializedID),
 		phone,
-		ip,
 		expireAt,
 		codeHash,
 	)

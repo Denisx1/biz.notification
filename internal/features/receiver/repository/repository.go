@@ -43,8 +43,8 @@ func (r *ReceiverRepository) Create(ctx context.Context, t *domain.SMSTask) (int
 	var id int64
 
 	query := `
-        INSERT INTO sms_tasks (phone, ip, expires_at, code_hash)
-        SELECT $1, $2, $3, $4
+        INSERT INTO sms_tasks (phone, expires_at, code_hash)
+        SELECT $1, $2, $3
         WHERE NOT EXISTS (
             SELECT 1 
             FROM sms_tasks 
@@ -57,7 +57,7 @@ func (r *ReceiverRepository) Create(ctx context.Context, t *domain.SMSTask) (int
 	err := r.pool.QueryRow(
 		ctx,
 		query,
-		t.Phone, t.IP, t.ExpiresAt, t.CodeHash,
+		t.Phone, t.ExpiresAt, t.CodeHash,
 	).Scan(&id)
 
 	if err != nil {

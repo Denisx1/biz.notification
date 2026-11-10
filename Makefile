@@ -60,5 +60,7 @@ deploy:
 deploy-down:
 	@docker compose down
 	@docker image prune -f
+logs:
+	@docker compose logs -f notification	
 
 # docker run --rm -it --network host natsio/nats-box nats sub ">"

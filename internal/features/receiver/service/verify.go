@@ -21,6 +21,9 @@ func (s *ReceiverService) Verify(
 		return core_errors.ErrCodeExpired
 	}
 	if !s.verifyCode(code, task.CodeHash) {
+		if err := s.repo.MarkError(ctx, task.ID, core_errors.ErrInvalidCode); err != nil {
+			return core_errors.ErrInvalidCode
+		}
 		return core_errors.ErrInvalidCode
 	}
 	if err := s.repo.MarkVerified(ctx, task.ID); err != nil {

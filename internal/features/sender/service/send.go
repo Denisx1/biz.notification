@@ -24,11 +24,10 @@ type SMSRequest struct {
 
 func (s *SenderService) SendSMS(sms domain.SMSMessage) (string, error) {
 
-	const baseURL = "https://api.sendpulse.com"
 	smsPayload := SMSRequest{
 		Sender:               "CherkasyBiz",
 		Phones:               []string{sms.Phone},
-		Body:                 fmt.Sprintf("%s %s", s.baseSMS, sms.Code),
+		Body:                 fmt.Sprintf("%s %s", sms.Code, s.baseSMS),
 		StatLinkTracking:     false,
 		StatLinkNeedProtocol: false,
 	}
