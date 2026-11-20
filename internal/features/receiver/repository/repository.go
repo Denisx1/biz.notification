@@ -24,7 +24,7 @@ func (r *ReceiverRepository) Get(ctx context.Context, phone string) (domain.SMSV
 	const query = `
 		SELECT id, code_hash, expires_at
 		FROM sms_tasks
-		WHERE phone = $1
+		WHERE phone = $1 AND status = 'sent'
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
